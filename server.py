@@ -96,7 +96,7 @@ async def handle_api(request):
     try:
         return web.json_response(await api.dispatch(path, body), headers=NO_STORE)
     except api.ApiError as e:
-        return web.json_response({"error": e.code, "message": e.msg}, status=e.status, headers=NO_STORE)
+        return web.json_response({"error": e.code, "message": e.msg, **e.extra}, status=e.status, headers=NO_STORE)
     except Exception:
         import logging
         logging.exception("api xatosi: %s", path)

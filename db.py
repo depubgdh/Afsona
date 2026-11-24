@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS uploads(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id
   duration INTEGER, name TEXT, created REAL, used INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS media(key TEXT PRIMARY KEY, mime TEXT, data BLOB, ver INTEGER);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS chats(chat_id INTEGER PRIMARY KEY, title TEXT DEFAULT '', type TEXT DEFAULT '', username TEXT DEFAULT '', invite TEXT DEFAULT '',
+  is_admin INTEGER DEFAULT 0, required INTEGER DEFAULT 0, added REAL);
 CREATE INDEX IF NOT EXISTS i_movies_views ON movies(views DESC);
 CREATE INDEX IF NOT EXISTS i_hist ON history(user_id, ts DESC);
 """
@@ -69,10 +71,19 @@ def connect():
     return con
 
 
+MIGRATE = {"movies": [("src", "TEXT DEFAULT 'tg'"), ("src_url", "TEXT DEFAULT ''"), ("poster_url", "TEXT DEFAULT ''")]}
+MAX_REQUIRED = 15            # majburiy obuna kanal/guruhlari eng ko'pi
+
+
 def init_db():
     con = connect()
     try:
         con.executescript(SCHEMA)
+        for tbl, cols in MIGRATE.items():              # eski bazaga yangi ustunlar
+            have = {r["name"] for r in con.execute(f"PRAGMA table_info({tbl})")}
+            for name, ddl in cols:
+                if name not in have:
+                    con.execute(f"ALTER TABLE {tbl} ADD COLUMN {name} {ddl}")
     finally:
         con.close()
 
@@ -301,8 +312,25 @@ def movie_public(r, uid: int = 0) -> dict:
     d = {"id": r["id"], "code": r["code"], "title": r["title"], "year": r["year"], "descr": r["descr"], "tags": unpack(r["tags"]),
          "emotions": unpack(r["emotions"]), "age": r["age"], "quality": r["quality"], "lang": r["lang"], "views": r["views"], "likes": r["likes"],
          "duration": r["duration"], "size": r["file_size"], "created": r["created"], "active": r["active"],
-         "poster": f"/media/poster_{r['id']}?v={r['poster_ver']}" if r["poster_ver"] else ""}
+         "poster": f"/media/poster_{r['id']}?v={r['poster_ver']}" if r["poster_ver"] else (r["poster_url"] or ""), "src": r["src"] or "tg"}
     return d
+
+
+YT_RE = re.compile(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/|v/)|youtu\.be/)([\w-]{11})", re.I)
+FILE_RE = re.compile(r"\.(mp4|webm|mov|m4v|ogv|m3u8)(\?.*)?$", re.I)
+
+
+def parse_source(url: str):
+    """Havoladan manba turini aniqlaydi: ('yt', video_id) | ('file', url) | ('embed', url)."""
+    url = (url or "").strip()
+    if not re.match(r"^https?://", url, re.I) or len(url) > 800:
+        raise DbError("bad_url", "Havola https:// bilan boshlansin")
+    m = YT_RE.search(url)
+    if m:
+        return "yt", m.group(1)
+    if FILE_RE.search(url):
+        return "file", url
+    return "embed", url
 
 
 def _clean_movie(d: dict, is_admin: bool, base: dict = None) -> dict:
@@ -348,7 +376,21 @@ def _clean_movie(d: dict, is_admin: bool, base: dict = None) -> dict:
     return out
 
 
+def movie_create_link(uid: int, d: dict) -> int:
+    """YouTube / boshqa sayt havolasidan kino (faqat admin). Kod avtomatik."""
+    kind, val = parse_source(d.get("src_url"))
+    f = _clean_movie(d, True)
+    f.pop("stream_url", None)
+    code = next_code()
+    poster_url = f"https://img.youtube.com/vi/{val}/hqdefault.jpg" if kind == "yt" else ""
+    cols = ["code", "src", "src_url", "poster_url", "owner", "created"] + list(f)
+    vals = [code, kind, val, poster_url, uid, now()] + list(f.values())
+    return _x(f"INSERT INTO movies({','.join(cols)}) VALUES({','.join('?' * len(cols))})", vals)
+
+
 def movie_create(uid: int, d: dict, is_admin: bool) -> int:
+    if is_admin and not d.get("upload_id") and d.get("src_url"):
+        return movie_create_link(uid, d)
     up = _q("SELECT * FROM uploads WHERE id=?", (int(d.get("upload_id") or 0),), one=True)
     if not up or up["used"] or (up["user_id"] != uid and not is_admin):
         raise DbError("no_upload", "Avval videoni botga yuboring va ro‘yxatdan tanlang")
@@ -383,6 +425,11 @@ def movie_update(mid: int, uid: int, d: dict, is_admin: bool):
         if code < 1 or movie_by_code_any(code):
             raise DbError("code_taken", "Bu kod band")
         f["code"] = code
+    if is_admin and m["src"] != "tg" and d.get("src_url"):
+        kind, val = parse_source(d["src_url"])
+        f.update({"src": kind, "src_url": val})
+        if kind == "yt" and not m["poster_ver"]:
+            f["poster_url"] = f"https://img.youtube.com/vi/{val}/hqdefault.jpg"
     if is_admin:
         f["active"] = 1 if d.get("active", m["active"]) else 0
         f["top_pos"] = max(0, min(999, int(d.get("top_pos", m["top_pos"]) or 0)))
@@ -554,3 +601,43 @@ def stats() -> dict:
     return {"users": one("SELECT COUNT(*) c FROM users"), "movies": one("SELECT COUNT(*) c FROM movies"), "views": one("SELECT COALESCE(SUM(views),0) c FROM movies"),
             "likes": one("SELECT COUNT(*) c FROM likes"), "pending": one("SELECT COUNT(*) c FROM perms WHERE status='pending'"),
             "approved": one("SELECT COUNT(*) c FROM perms WHERE status='approved'"), "top": top}
+
+
+# ---------------- majburiy obuna: bot admin bo'lgan kanal/guruhlar ----------------
+def chat_upsert(chat_id: int, title: str, ctype: str, username: str, is_admin: bool, invite: str = ""):
+    r = _q("SELECT * FROM chats WHERE chat_id=?", (chat_id,), one=True)
+    if r:
+        _x("UPDATE chats SET title=?, type=?, username=?, is_admin=?, invite=CASE WHEN ?<>'' THEN ? ELSE invite END WHERE chat_id=?",
+           (title, ctype, username or "", 1 if is_admin else 0, invite, invite, chat_id))
+    else:
+        _x("INSERT INTO chats(chat_id,title,type,username,invite,is_admin,required,added) VALUES(?,?,?,?,?,?,0,?)",
+           (chat_id, title, ctype, username or "", invite, 1 if is_admin else 0, now()))
+
+
+def chat_list():
+    return [dict(r) for r in _q("SELECT * FROM chats ORDER BY required DESC, added DESC")]
+
+
+def chat_get(chat_id: int):
+    return _q("SELECT * FROM chats WHERE chat_id=?", (chat_id,), one=True)
+
+
+def chat_set_required(chat_id: int, on: bool):
+    c = chat_get(chat_id)
+    if not c:
+        raise DbError("none", "Kanal/guruh topilmadi")
+    if on:
+        if not c["is_admin"]:
+            raise DbError("not_admin", "Bot bu yerda admin emas")
+        n = _q("SELECT COUNT(*) c FROM chats WHERE required=1 AND chat_id<>?", (chat_id,), one=True)["c"]
+        if n >= MAX_REQUIRED:
+            raise DbError("limit", f"Eng ko‘pi bilan {MAX_REQUIRED} ta kanal/guruh belgilash mumkin")
+    _x("UPDATE chats SET required=? WHERE chat_id=?", (1 if on else 0, chat_id))
+
+
+def chat_remove(chat_id: int):
+    _x("DELETE FROM chats WHERE chat_id=?", (chat_id,))
+
+
+def required_chats():
+    return [dict(r) for r in _q("SELECT * FROM chats WHERE required=1 AND is_admin=1 ORDER BY added")]

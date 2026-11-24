@@ -16,8 +16,27 @@ import api, config, db, tgapi  # noqa: E402
 SENT = []
 
 
+JOINED = set()          # (chat_id, uid) — «obuna bo'lgan» foydalanuvchilar (sinov uchun)
+CHATS = {}              # chat_id -> getChat natijasi
+
+
 async def fake_call(method, **kw):
     SENT.append((method, kw.get("chat_id"), (kw.get("caption") or kw.get("text") or "")[:80]))
+    if method == "getMe":
+        return {"ok": True, "result": {"id": 999, "username": "kino_demo_bot"}}
+    if method == "getChat":
+        ref = str(kw.get("chat_id"))
+        ch = CHATS.get(ref)
+        return {"ok": True, "result": ch} if ch else {"ok": False}
+    if method == "getChatMember":
+        if kw.get("user_id") == 999:
+            return {"ok": True, "result": {"status": "administrator"}}
+        st = "member" if (kw.get("chat_id"), kw.get("user_id")) in JOINED else "left"
+        return {"ok": True, "result": {"status": st}}
+    if method == "exportChatInviteLink":
+        return {"ok": True, "result": "https://t.me/+invite"}
+    if method == "forwardMessage":
+        return {"ok": True, "result": {"message_id": 5, "caption": "Test Film\nizoh", "video": {"file_id": "FWD" + str(os.urandom(2).hex()), "file_unique_id": os.urandom(3).hex(), "file_size": 700000000, "duration": 6000}}}
     return {"ok": True, "result": {}}
 
 
@@ -51,6 +70,13 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0)); body = json.loads(self.rfile.read(n) or b"{}")
         uid = int(self.headers.get("X-Dev-User", os.environ.get("DEV_UID", "7")))
         user = {"id": uid, "first_name": "Test" if uid == 7 else f"User{uid}", "username": "testuser" if uid == 7 else f"user{uid}"}
+        if self.path == "/dev/chat":                       # sinov: bot admin bo'lgan kanal qo'shish
+            CHATS[str(body["ref"])] = {"id": body["id"], "type": body.get("type", "channel"), "title": body["title"], "username": body.get("username", "")}
+            CHATS[str(body["id"])] = CHATS[str(body["ref"])]
+            return self._send(200, "{}")
+        if self.path == "/dev/join":
+            (JOINED.add if body.get("on", True) else JOINED.discard)((body["chat_id"], uid))
+            return self._send(200, "{}")
         if self.path == "/dev/upload":
             db.ensure_user(uid, user["username"], user["first_name"], "")
             i = db.upload_add(uid, "video", "FILEID" + str(os.urandom(3).hex()), os.urandom(4).hex(), body.get("size", 900_000_000), 5400, body.get("name", "film.mp4"))
@@ -58,7 +84,7 @@ class H(BaseHTTPRequestHandler):
         try:
             self._send(200, json.dumps(asyncio.run(api.dispatch(self.path[5:], body, dev_user=user))))
         except api.ApiError as e:
-            self._send(e.status, json.dumps({"error": e.code, "message": e.msg}))
+            self._send(e.status, json.dumps({"error": e.code, "message": e.msg, **e.extra}))
 
 
 if __name__ == "__main__":

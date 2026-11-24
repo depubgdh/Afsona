@@ -1,29 +1,33 @@
-# Kino bot — Telegram bot + Mini App
+# Kino bot + Mini App (v2)
 
-## Ishga tushirish
-1. @BotFather'da bot yarating, tokenni oling.
-2. `.env.example` dagi qiymatlarni muhit o'zgaruvchisi qiling (`BOT_TOKEN`, `ADMIN_IDS`, `WEBAPP_URL`).
-3. `pip install -r requirements.txt`, so'ng `python main.py` (bot va Mini App bitta jarayonda; `WEBAPP_URL` — shu serverning https manzili).
-4. Admin: `/admin` yoki Mini App → ⚙. Sinov (Telegramsiz): `python dev_server.py` → `http://localhost:8771/?dev=1`.
+Telegram bot: kino kodini yozasiz — bot kinoni yuboradi. Mini App: qidiruv, top kinolar, ko'rish (video/YouTube/sayt), profil, kino joylash, admin panel.
 
-## Foydalanuvchi uchun
-- Botga **kino kodini** yozing: `1`, `[1]`, `[ 1 ]`, `kod1`, `[kod1]`, `[kod : 1 ]`, `[ kod:1]`, `[/1]`, `/1`, `#1` — hammasi bir xil ishlaydi. Admin faqat raqamni belgilaydi.
-- Kino **nomi** yozilsa, bot topilganlarni tugmalar bilan ko'rsatadi.
-- Mini App: **Kinolar** (tepa chapda 🔍 qidiruv: nom yoki kod; ustida TOP kinolar; «Siz uchun» tavsiyalar; hashtag/janr tugmalari; 16:9 kartalar), **Profil** (yoqtirgan, saqlangan, tarix; tarixni yozishni o'chirish), **Kino joylash**.
-- Tavsiyalar YouTube kabi: ko'rgan/yoqtirgan/saqlagan kinolarning hashtag va emotsiyalariga mos kinolar ko'proq chiqadi.
-- 18+ kinolar oldidan yoshni tasdiqlash so'raladi.
+## Render sozlamalari
+Build: `pip install -r requirements.txt`   Start: `python main.py`
 
-## Kino joylash va ruxsat
-- Faqat admin ruxsat bergan kishilar joylaydi. Ruxsat uchun so'rov: ism, familya, tug'ilgan yili, telefon, e-mail. So'rov adminga botda ✅/❌ tugmalari bilan keladi (yoki Admin → So'rovlar).
-- Joylash: 1) video faylni botga yuboring; 2) Mini App → Kino joylash → videoni tanlab nomi, poster (16:9), hashtag, emotsiya, yosh chegarasi, sifat (480p–4K), til yozing. Kod avtomatik beriladi.
-- Admin qo'shimcha: kodni o'zi tanlaydi, qo'shimcha qidiruv so'zlari, to'g'ridan-to'g'ri video havolasi, shu kinoga alohida reklama, kinoni yashirish/o'chirish, TOP ro'yxat.
+Environment (Render → Environment):
+| Nom | Qiymat |
+|---|---|
+| BOT_TOKEN | @BotFather bergan token |
+| ADMIN_IDS | Sizning Telegram ID (raqam, @userinfobot dan). Bir nechta bo'lsa vergul bilan |
+| WEBAPP_URL | Render manzilingiz, masalan https://kinobot.onrender.com (bo'sh qolsa RENDER_EXTERNAL_URL olinadi) |
+| DB_PATH | /data/kinobot.sqlite3 (Render Disk ni /data ga ulang — aks holda bazа har deployda o'chadi) |
+| BOT_USERNAME | ixtiyoriy (@siz) |
+| BOT_API_URL | ixtiyoriy: o'z Bot API serveringiz (katta filmlarni Mini App'da ko'rsatish uchun) |
 
-## Reklama
-- **Umumiy reklama**: kino ustida (Mini App pleyerida), botda kino tagida havola tugmasi. Kinoning o'z reklamasi bo'lsa, o'sha ko'rinadi.
-- **Majburiy reklama**: Mini App pleyerida har N daqiqalik (standart 30) ko'rishdan keyin to'liq ekranda; botda — oxirgi reklamadan N daqiqa o'tgach, kinodan oldin yuboriladi. Tagida havola tugmasi.
-- Rasm, GIF yoki MP4 (6 MB gacha) va havola — Admin → Reklama.
+PORT avtomatik. Bepul tarif uxlab qoladi — pullik tarif yoki /health ga ping tavsiya etiladi.
+BotFather: /setmenubutton shart emas (bot o'zi qo'yadi). Bot Mini App uchun Domain sifatida WEBAPP_URL ni oladi.
 
-## Katta kinolar haqida (muhim)
-Telegram oddiy Bot API orqali fayllarni 20 MB gacha beradi. Shuning uchun:
-- Kino botga **har qanday hajmda** yuboriladi va foydalanuvchiga bot orqali chiqadi (file_id).
-- **Mini App ichida ko'rsatish** (va 30 daqiqalik reklama) uchun: kino ≤ 20 MB, yoki admin «video havolasi» (.mp4) qo'ygan, yoki o'z Bot API serveringiz (`BOT_API_URL`, `telegram-bot-api --local`) ulangan bo'lishi kerak. Aks holda Mini App «Botga yuborish» tugmasini ko'rsatadi.
+## Majburiy obuna
+1. Botni kanal/guruhga ADMIN qiling — Mini App → Admin → Obuna ro'yxatida o'zi chiqadi (chiqmasa @username yoki t.me havola bilan qo'shing, «Yangilash»).
+2. Kerakli kanallarni yoqing (eng ko'pi 15). Bot kod yozilganda, /start dan keyin va Mini App ochilganda obunani tekshiradi; «Tekshirish» tugmasi bor.
+
+## Kino qo'shish (admin)
+- Botga video yuborish → Mini App → Kino joylash.
+- Telegram havola: guruh/kanaldagi post havolasini (t.me/kanal/123) Mini App'da «Telegram havola»ga yoki botga to'g'ridan-to'g'ri yuboring — bot videoni oladi (bot o'sha chatda a'zo bo'lishi, kontent himoyalanmagan bo'lishi kerak).
+- YouTube / sayt havolasi: kod yozish shart emas, Mini App ichida ko'rsatiladi (.mp4, .m3u8, YouTube, boshqa sayt pleyeri).
+
+## Eslatma
+- Telegramda turgan katta (20 MB+) filmlar Mini App'da faqat o'z Bot API serveringiz (BOT_API_URL) yoki «video havolasi» bilan ko'rinadi; aks holda botga yuboriladi.
+- Sayt pleyerida (iframe) majburiy reklama vaqt bo'yicha chiqadi, pleyerni to'xtata olmaydi.
+- Mini App'da emoji yo'q; ranglar index.html boshidagi `:root` da.

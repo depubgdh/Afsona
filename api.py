@@ -10,17 +10,19 @@ import auth
 import config
 import db
 import deliver
+import subs
 import tgapi
 
 ROUTES = {}
 ADMIN_ROUTES = set()
+SUB_FREE = {"me", "sub/status", "sub/check"}          # obunasiz ham ishlaydigan yo'llar
 TG_FILE_LIMIT = 20 * 1024 * 1024          # oddiy Bot API faqat shu hajmgacha fayl berib turadi
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, msg: str = ""):
+    def __init__(self, status: int, code: str, msg: str = "", extra: dict = None):
         super().__init__(code)
-        self.status, self.code, self.msg = status, code, msg or code
+        self.status, self.code, self.msg, self.extra = status, code, msg or code, extra or {}
 
 
 def route(path, admin=False):
@@ -58,6 +60,10 @@ async def dispatch(path: str, body: dict, dev_user: dict = None):
     if path in ADMIN_ROUTES and not is_admin:
         raise ApiError(403, "forbidden", "Faqat admin uchun")
     ctx = {"uid": uid, "user": user, "is_admin": is_admin}
+    if path not in SUB_FREE and not is_admin:
+        miss = await subs.missing(uid)
+        if miss:
+            raise ApiError(403, "subscribe", "Avval kanallarga obuna bo‘ling", {"missing": miss})
     try:
         return await fn(ctx, body)
     except db.DbError as e:
@@ -101,6 +107,8 @@ def _url(u: str, allow_tg=True) -> str:
 
 
 def has_stream(m) -> bool:
+    if (m["src"] or "tg") != "tg":
+        return True
     return bool(m["stream_url"]) or bool(config.BOT_API_URL) or (0 < (m["file_size"] or 0) <= TG_FILE_LIMIT)
 
 
@@ -148,13 +156,27 @@ async def api_me(c, d):
     uid, u = c["uid"], c["user"]
     st = db.get_settings()
     perm = db.perm_get(uid)
+    miss = await subs.missing(uid)
     return {
+        "sub": {"required": bool(miss), "missing": miss},
         "user": {"id": uid, "name": u["first_name"], "username": u["username"], "photo": u["photo"], "hist_on": bool(u["hist_on"]), "adult_ok": bool(u["adult_ok"])},
         "is_admin": c["is_admin"], "can_post": db.can_post(uid), "perm": perm["status"] if perm else "",
         "settings": {"forced_every_min": st["forced_every_min"], "forced_skip_sec": st["forced_skip_sec"]},
         "ads": public_ads(), "bot": config.BOT_USERNAME, "qualities": list(db.QUALITIES), "ages": list(db.AGES),
         "emotions": [{"k": k, "e": e} for k, e in db.EMOTIONS.items()], "counts": db.counts(uid),
     }
+
+
+@route("sub/status")
+async def api_sub_status(c, d):
+    miss = await subs.missing(c["uid"])
+    return {"required": bool(miss), "missing": miss}
+
+
+@route("sub/check")
+async def api_sub_check(c, d):
+    miss = await subs.missing(c["uid"], fresh=True)
+    return {"required": bool(miss), "missing": miss}
 
 
 @route("home")
@@ -184,6 +206,7 @@ async def api_movie(c, d):
     out = card(m)
     out.update(db.flags(c["uid"], m["id"]))
     out["has_stream"] = has_stream(m)
+    out["src"] = m["src"] or "tg"
     ad_media = db.media_get(f"ad_m{m['id']}") if m["ad_ver"] else None
     out["ad"] = {"ver": m["ad_ver"], "url": m["ad_url"], "mime": ad_media["mime"]} if ad_media else None
     out["can_edit"] = c["is_admin"] or m["owner"] == c["uid"]
@@ -216,10 +239,13 @@ async def api_watch(c, d):
         if res == "fail":
             raise ApiError(502, "send_fail", "Kinoni yuborib bo‘lmadi. Avval botga /start yozing.")
         return {"sent": True}
+    if (m["src"] or "tg") != "tg":                       # YouTube / boshqa sayt
+        db.record_view(uid, mid)
+        return {"kind": m["src"], "src": m["src_url"], "title": m["title"]}
     if not has_stream(m):
         raise ApiError(409, "no_stream", "Bu kino katta, uni botga yuborib ko‘ring")
     db.record_view(uid, mid)
-    return {"src": stream_link(uid, mid), "title": m["title"]}
+    return {"kind": "file", "src": stream_link(uid, mid), "title": m["title"]}
 
 
 @route("user/adult")
@@ -306,7 +332,7 @@ async def api_movie_edit(c, d):
     if not m or (m["owner"] != c["uid"] and not c["is_admin"]):
         raise ApiError(403, "forbidden", "Ruxsat yo‘q")
     out = card(m)
-    out.update({"aliases": m["aliases"].replace(",", ", "), "stream_url": m["stream_url"], "ad_url": m["ad_url"], "ad_ver": m["ad_ver"], "top_pos": m["top_pos"]})
+    out.update({"aliases": m["aliases"].replace(",", ", "), "stream_url": m["stream_url"], "src_url": ("" if (m["src"] or "tg") == "tg" else (f"https://youtu.be/{m['src_url']}" if m["src"] == "yt" else m["src_url"])), "ad_url": m["ad_url"], "ad_ver": m["ad_ver"], "top_pos": m["top_pos"]})
     return out
 
 
@@ -425,3 +451,47 @@ async def api_a_broadcast(c, d):
     ids = db.all_user_ids()
     asyncio.ensure_future(tgapi.broadcast(ids, text))
     return {"queued": len(ids)}
+
+
+# ---------------- admin: majburiy obuna kanallari ----------------
+def _chats():
+    return {"items": db.chat_list(), "max": db.MAX_REQUIRED, "required": len(db.required_chats()), "bot": config.BOT_USERNAME}
+
+
+@route("admin/chats", admin=True)
+async def api_a_chats(c, d):
+    return _chats()
+
+
+@route("admin/chat/refresh", admin=True)
+async def api_a_chat_refresh(c, d):
+    await subs.refresh_all()
+    return _chats()
+
+
+@route("admin/chat/add", admin=True)
+async def api_a_chat_add(c, d):
+    await subs.add_by_ref(str(d.get("ref", "")))
+    return _chats()
+
+
+@route("admin/chat/required", admin=True)
+async def api_a_chat_required(c, d):
+    db.chat_set_required(_i(d.get("chat_id")), bool(d.get("on")))
+    subs._CACHE.clear()
+    return _chats()
+
+
+@route("admin/chat/remove", admin=True)
+async def api_a_chat_remove(c, d):
+    db.chat_remove(_i(d.get("chat_id")))
+    subs._CACHE.clear()
+    return _chats()
+
+
+@route("upload/link", admin=True)
+async def api_upload_link(c, d):
+    """Admin guruh/kanaldagi post havolasini tashlaydi — bot videoni olib, ro'yxatga qo'shadi."""
+    r = await subs.import_from_link(str(d.get("url", "")), c["uid"])
+    uid = db.upload_add(c["uid"], r["file_kind"], r["file_id"], r["file_unique_id"], r["file_size"], r["duration"], r["title"])
+    return {"upload_id": uid, "title": r["title"], "size": r["file_size"]}

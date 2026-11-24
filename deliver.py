@@ -75,6 +75,21 @@ async def send_movie(chat_id: int, uid: int, mid: int):
     st = db.get_settings()
     if db.forced_due(uid, st["forced_every_min"]):
         await send_ad(chat_id, "ad_forced")
+    if (m["src"] or "tg") != "tg":                       # YouTube / sayt: Mini App ichida ko'rsatiladi
+        kb = keyboard(m)
+        kb["inline_keyboard"][1:1] = []
+        try:
+            if m["poster_url"] or m["poster_ver"]:
+                poster = m["poster_url"] or f"{config.WEBAPP_URL}/media/poster_{m['id']}?v={m['poster_ver']}"
+                d = await tgapi.call("sendPhoto", chat_id=chat_id, photo=poster, caption=caption(m), parse_mode="HTML", reply_markup=kb)
+            else:
+                d = await tgapi.call("sendMessage", chat_id=chat_id, text=caption(m), parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            return "fail"
+        if not d.get("ok"):
+            return "fail"
+        db.record_view(uid, mid)
+        return "ok"
     method, field = ("sendVideo", "video") if m["file_kind"] == "video" else ("sendDocument", "document")
     extra = {"supports_streaming": True} if method == "sendVideo" else {}
     try:
