@@ -145,4 +145,5 @@ async def import_from_link(url: str, admin_id: int) -> dict:
         raise db.DbError("no_video", "Bu postda video topilmadi")
     title = (r.get("caption") or "").strip().split("\n")[0][:80] or f.get("file_name", "") or ""
     return {"file_id": f["file_id"], "file_unique_id": f.get("file_unique_id", ""), "file_kind": kind,
-            "file_size": f.get("file_size", 0) or 0, "duration": f.get("duration", 0) or 0, "title": title}
+            "file_size": f.get("file_size", 0) or 0, "duration": f.get("duration", 0) or 0, "title": title,
+            "thumb": (f.get("thumbnail") or f.get("thumb") or {}).get("file_id", "")}

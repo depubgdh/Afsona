@@ -28,6 +28,25 @@ async def upload(method: str, field: str, filename: str, data: bytes, mime: str,
             return await r.json()
 
 
+async def download_file(file_id: str, raw: bool = False):
+    """Telegram serveridagi faylni yuklab oladi -> (bytes, mime). Xato bo'lsa (b'', '')."""
+    import os
+    import aiohttp
+    d = await call("getFile", file_id=file_id)
+    if not d.get("ok"):
+        return b"", ""
+    path = d["result"].get("file_path", "")
+    if path.startswith("/") and os.path.exists(path):            # o'z Bot API serveri: fayl diskda
+        return open(path, "rb").read(), "application/octet-stream" if raw else "image/jpeg"
+    url = f"{config.BOT_API_URL or 'https://api.telegram.org'}/file/bot{config.BOT_TOKEN}/{path}"
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
+        async with s.get(url) as r:
+            if r.status != 200:
+                return b"", ""
+            mime = "image/png" if path.lower().endswith(".png") else "image/webp" if path.lower().endswith(".webp") else "image/jpeg"
+            return await r.read(), mime
+
+
 async def send_message(chat_id: int, text: str, **kw) -> bool:
     try:
         d = await call("sendMessage", chat_id=chat_id, text=text, **kw)

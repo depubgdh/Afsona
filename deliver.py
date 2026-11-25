@@ -25,9 +25,10 @@ def caption(m) -> str:
 
 
 def keyboard(m) -> dict:
-    rows = [[{"text": "❤️ Yoqdi", "callback_data": f"lk:{m['id']}"}, {"text": "🔖 Saqlash", "callback_data": f"sv:{m['id']}"}]]
-    if config.WEBAPP_URL:
-        rows.append([{"text": "🎬 Mini App’da ochish", "web_app": {"url": f"{config.WEBAPP_URL}?movie={m['id']}"}}])
+    rows = []
+    if config.WEBAPP_URL:                                # 1-qator: Mini App'da ko'rish
+        rows.append([{"text": "🎬 Mini App’da ko‘rish", "web_app": {"url": f"{config.WEBAPP_URL}?movie={m['id']}"}}])
+    rows.append([{"text": "❤️ Yoqdi", "callback_data": f"lk:{m['id']}"}, {"text": "🔖 Saqlash", "callback_data": f"sv:{m['id']}"}])
     url = m["ad_url"] or db.get_text("ad_main_url", "")
     if url and (m["ad_ver"] or db.media_get("ad_main")):
         rows.append([{"text": db.get_text("ad_main_text", "") or "📢 Reklama", "url": url}])
@@ -77,7 +78,6 @@ async def send_movie(chat_id: int, uid: int, mid: int):
         await send_ad(chat_id, "ad_forced")
     if (m["src"] or "tg") != "tg":                       # YouTube / sayt: Mini App ichida ko'rsatiladi
         kb = keyboard(m)
-        kb["inline_keyboard"][1:1] = []
         try:
             if m["poster_url"] or m["poster_ver"]:
                 poster = m["poster_url"] or f"{config.WEBAPP_URL}/media/poster_{m['id']}?v={m['poster_ver']}"
@@ -92,8 +92,14 @@ async def send_movie(chat_id: int, uid: int, mid: int):
         return "ok"
     method, field = ("sendVideo", "video") if m["file_kind"] == "video" else ("sendDocument", "document")
     extra = {"supports_streaming": True} if method == "sendVideo" else {}
+    args = dict(chat_id=chat_id, caption=caption(m), parse_mode="HTML", reply_markup=keyboard(m), **extra)
+    d = {"ok": False}
     try:
-        d = await tgapi.call(method, chat_id=chat_id, **{field: m["file_id"]}, caption=caption(m), parse_mode="HTML", reply_markup=keyboard(m), **extra)
+        if method == "sendVideo" and m["poster_ver"] and config.WEBAPP_URL:
+            # Admin tanlagan poster kinoning muqovasi bo'ladi (cover). Poster yo'q bo'lsa — videoning o'z rasmi.
+            d = await tgapi.call(method, **args, **{field: m["file_id"]}, cover=f"{config.WEBAPP_URL}/media/poster_{m['id']}?v={m['poster_ver']}")
+        if not d.get("ok"):
+            d = await tgapi.call(method, **args, **{field: m["file_id"]})
     except Exception:
         return "fail"
     if not d.get("ok"):

@@ -10,6 +10,7 @@ import auth
 import config
 import db
 import deliver
+import backup
 import subs
 import tgapi
 
@@ -167,6 +168,14 @@ async def api_me(c, d):
     }
 
 
+@route("admin/backup", admin=True)
+async def api_a_backup(c, d):
+    r = await backup.run_once(force=True)
+    if r != "ok":
+        raise ApiError(500, "backup", "Zaxira yuborilmadi (" + r + ")")
+    return {"ok": True}
+
+
 @route("sub/status")
 async def api_sub_status(c, d):
     miss = await subs.missing(c["uid"])
@@ -299,8 +308,16 @@ def _save_poster(mid: int, d: dict):
 async def api_movie_create(c, d):
     if not db.can_post(c["uid"]):
         raise ApiError(403, "forbidden", "Kino joylashga ruxsat yo‘q")
+    thumb = db.upload_thumb(c["uid"], d.get("upload_id")) if d.get("upload_id") else ""
     mid = db.movie_create(c["uid"], d, c["is_admin"])
     _save_poster(mid, d)
+    if thumb and not db.movie_get(mid)["poster_ver"]:            # poster berilmagan: videoning o'z rasmini qo'yamiz
+        try:
+            data, mime = await tgapi.download_file(thumb)
+            if data:
+                db.movie_set_media(mid, "poster", db.media_save(f"poster_{mid}", mime, data))
+        except Exception:
+            pass
     m = db.movie_get(mid)
     return {"id": mid, "code": m["code"]}
 
@@ -493,5 +510,5 @@ async def api_a_chat_remove(c, d):
 async def api_upload_link(c, d):
     """Admin guruh/kanaldagi post havolasini tashlaydi — bot videoni olib, ro'yxatga qo'shadi."""
     r = await subs.import_from_link(str(d.get("url", "")), c["uid"])
-    uid = db.upload_add(c["uid"], r["file_kind"], r["file_id"], r["file_unique_id"], r["file_size"], r["duration"], r["title"])
+    uid = db.upload_add(c["uid"], r["file_kind"], r["file_id"], r["file_unique_id"], r["file_size"], r["duration"], r["title"], r.get("thumb", ""))
     return {"upload_id": uid, "title": r["title"], "size": r["file_size"]}

@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, ChatMemberUpdated, InlineKeyboardButton
 import api
 import config
 import db
+import backup
 import deliver
 import subs
 import tgapi
@@ -69,6 +70,19 @@ async def admin(m: Message):
         await m.answer("🛠 Admin panel Mini App ichida: ochib, yuqoridagi ⚙ tugmasini bosing.", reply_markup=app_kb("🛠 Admin panelni ochish"))
 
 
+@router.message(F.chat.type == "private", F.document, F.document.file_name.startswith("kinobot-backup"))
+async def restore_backup(m: Message):
+    """Admin zaxira faylini botga yuborsa — baza shu fayldan tiklanadi."""
+    if m.from_user.id not in config.ADMIN_IDS:
+        return
+    data, _ = await tgapi.download_file(m.document.file_id, raw=True)
+    if data and backup.install(data):
+        db.init_db()
+        await m.answer("Baza zaxiradan tiklandi.")
+    else:
+        await m.answer("Zaxira faylini o‘qib bo‘lmadi.")
+
+
 @router.message(F.chat.type == "private", F.video | F.document)
 async def got_file(m: Message):
     """Video qabul qilish: faqat admin va ruxsat berilganlar."""
@@ -80,7 +94,7 @@ async def got_file(m: Message):
     if not db.can_post(u.id):
         return await m.answer("🔒 Kino joylash uchun admin ruxsati kerak. Mini App → «Kino joylash» bo‘limida so‘rov yuboring.", reply_markup=app_kb("📝 So‘rov yuborish", "?tab=post"))
     uid = db.upload_add(u.id, "video" if m.video else "document", f.file_id, f.file_unique_id, f.file_size or 0, getattr(f, "duration", 0) or 0,
-                        getattr(f, "file_name", "") or (m.caption or ""))
+                        getattr(f, "file_name", "") or (m.caption or ""), (f.thumbnail.file_id if getattr(f, "thumbnail", None) else ""))
     mb = (f.file_size or 0) / 1048576
     await m.answer(f"✅ Video qabul qilindi{f' ({mb:.0f} MB)' if mb else ''}.\nEndi ma’lumotlarini to‘ldiring: nomi, rasmi, hashtag, emotsiya, yosh chegarasi.",
                    reply_markup=app_kb("📝 Ma’lumotlarni to‘ldirish", "?tab=post"))
@@ -116,7 +130,7 @@ async def admin_link(m: Message, url: str):
         r = await subs.import_from_link(url, m.from_user.id)
     except db.DbError as e:
         return await m.answer("⚠️ " + e.msg)
-    db.upload_add(m.from_user.id, r["file_kind"], r["file_id"], r["file_unique_id"], r["file_size"], r["duration"], r["title"])
+    db.upload_add(m.from_user.id, r["file_kind"], r["file_id"], r["file_unique_id"], r["file_size"], r["duration"], r["title"], r.get("thumb", ""))
     mb = r["file_size"] / 1048576
     await m.answer(f"✅ Video olindi{f' ({mb:.0f} MB)' if mb else ''}. Endi Mini App → Kino joylash bo‘limida ma’lumotlarini to‘ldiring.",
                    reply_markup=app_kb("Ma’lumotlarni to‘ldirish", "?tab=post"))

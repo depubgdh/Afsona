@@ -31,3 +31,6 @@ BotFather: /setmenubutton shart emas (bot o'zi qo'yadi). Bot Mini App uchun Doma
 - Telegramda turgan katta (20 MB+) filmlar Mini App'da faqat o'z Bot API serveringiz (BOT_API_URL) yoki «video havolasi» bilan ko'rinadi; aks holda botga yuboriladi.
 - Sayt pleyerida (iframe) majburiy reklama vaqt bo'yicha chiqadi, pleyerni to'xtata olmaydi.
 - Mini App'da emoji yo'q; ranglar index.html boshidagi `:root` da.
+
+## Baza zaxirasi (Render'da kinolar o'chib ketmasligi uchun)
+Bot bazani har 2 daqiqada (o'zgarish bo'lsa) ADMIN_IDS dagi birinchi adminning chatiga `kinobot-backup.sqlite3` sifatida yuborib PIN qiladi. Deploydan keyin baza bo'sh bo'lsa, bot uni shu yerdan o'zi tiklaydi. Qo'lda: zaxira faylini botga yuborsangiz ham tiklanadi. Admin → Sozlamalar → «Hozir zaxira olish» tugmasi bor. Eng ishonchli yo'l baribir Render Disk (DB_PATH=/data/...).

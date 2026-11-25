@@ -133,8 +133,16 @@ body.hidenav #nav{display:none}
 .acts{display:grid;gap:10px;margin:14px 0}
 .plr{position:relative;background:#000;aspect-ratio:16/9;width:100%;overflow:hidden}
 .plr video,.plr iframe,.plr .ytw{width:100%;height:100%;display:block;background:#000;border:0}
-.pad{position:absolute;left:0;right:0;bottom:44px;height:56px;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:4;overflow:hidden}
-.pad.top{bottom:auto;top:0}
+.pad{position:absolute;left:0;right:0;top:0;height:32px;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:4;overflow:hidden}
+.pv{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;background:#000}
+.pv .bar{padding:calc(8px + env(safe-area-inset-top,0px)) 10px 8px;display:flex;align-items:center;gap:10px}
+.stage{flex:1;display:flex;flex-direction:column;justify-content:center;gap:16px;padding-bottom:60px}
+.adb{display:block;margin:0 12px;border-radius:16px;overflow:hidden;background:var(--s1);border:1px solid var(--line);position:relative;cursor:pointer;width:auto}
+.adb img,.adb video{display:block;width:100%;max-height:190px;object-fit:cover}
+.adb small{position:absolute;left:8px;top:6px;font-size:10px;font-weight:800;background:rgba(0,0,0,.65);padding:2px 7px;border-radius:6px;color:#fffd}
+.plr.rot{position:fixed;top:0;left:0;width:100vh;width:100dvh;height:100vw;height:100dvw;aspect-ratio:auto;transform-origin:top left;transform:translateX(100vw) rotate(90deg);z-index:120}
+.rbtn{display:none;position:absolute;right:10px;top:40px;z-index:6;width:auto}
+.plr.rot .rbtn{display:flex}
 .pad img,.pad video{max-width:100%;max-height:100%;object-fit:contain;pointer-events:none}
 .pad .x{position:absolute;right:4px;top:3px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:5}
 .pad .x svg{width:12px;height:12px}
@@ -242,7 +250,8 @@ body.hidenav #nav{display:none}
     compass: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
     land: '<path d="M3 21h18M5 21V10M9 21V10M15 21V10M19 21V10M3 10l9-6 9 6z"/>', tag: '<path d="M3 12V4h8l10 10-8 8z"/><path d="M7.5 7.5h.01"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>', filter: '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
-    note: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>'
+    note: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
+    expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'
   };
   const svg = (name, cls) => { const d = document.createElement("div"); d.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (IC[name] || IC.tag) + "</svg>"; const e = d.firstChild; if (cls) e.setAttribute("class", cls); return e; };
   const ic = svg;
@@ -494,16 +503,21 @@ body.hidenav #nav{display:none}
       overlay("p3", (close, o) => {
         const st = S.me.settings, ads = S.me.ads, kind = r.kind || "file";
         const box = h("div", { class: "plr" });
-        let ctl = { pause() {}, play() {} }, watched = 0, shown = false, iv = 0, yt = null;
+        let ctl = { pause() {}, play() {} }, watched = 0, shown = false, yt = null;
+        const cleanups = [];
+        o.onclose = () => cleanups.forEach((f) => { try { f(); } catch (e) {} });
         const limit = Math.max(1, st.forced_every_min) * 60;
         const tick = (sec) => { watched += sec; if (watched >= limit && !shown && ads.forced.ver) forcedAd(); };
         const err = (msg) => { box.appendChild(h("div", { class: "forced" }, h("div", { class: "note", style: "text-align:center" }, msg),
           r.src && kind !== "file" ? h("button", { class: "btn s", onclick: () => openLink(kind === "yt" ? "https://youtu.be/" + r.src : r.src) }, svg("link"), "Tashqarida ochish") : null)); };
         if (kind === "file") {
-          const video = h("video", { controls: "", playsinline: "", autoplay: "", controlsList: "nodownload" });
+          const video = h("video", { controls: "", playsinline: "", controlsList: "nodownload" });   // ovoz bilan boshlanadi (muted yo'q)
+          video.muted = false; video.volume = 1;
           if (/\.m3u8(\?|$)/i.test(r.src) && !video.canPlayType("application/vnd.apple.mpegurl")) {
-            loadScript("https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js").then(() => { const hl = new Hls(); hl.loadSource(r.src); hl.attachMedia(video); o.onclose = () => hl.destroy(); }).catch(() => err("Video ochilmadi"));
+            loadScript("https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js").then(() => { const hl = new Hls(); hl.loadSource(r.src); hl.attachMedia(video); cleanups.push(() => hl.destroy()); }).catch(() => err("Video ochilmadi"));
           } else video.src = r.src;
+          const start = () => { video.muted = false; const p = video.play(); if (p && p.catch) p.catch(() => toast("Boshlash uchun pleyerdagi tugmani bosing")); };
+          video.addEventListener("loadedmetadata", start, { once: true });
           let last = 0;
           video.ontimeupdate = () => { const t = video.currentTime, d = t - last; last = t; if (d > 0 && d < 2 && !video.paused) tick(d); };
           video.onseeked = () => { last = video.currentTime; };
@@ -511,27 +525,36 @@ body.hidenav #nav{display:none}
           ctl = { pause: () => video.pause(), play: () => { last = video.currentTime; video.play().catch(() => {}); } };
           box.appendChild(video);
         } else if (kind === "yt") {
-          const holder = h("div", { class: "ytw" }, h("div", { id: "ytp" })); box.appendChild(holder);
+          box.appendChild(h("div", { class: "ytw" }, h("div", { id: "ytp" })));
           const mk = () => {
             yt = new YT.Player("ytp", { videoId: r.src, width: "100%", height: "100%", playerVars: { playsinline: 1, rel: 0, modestbranding: 1, autoplay: 1 },
-              events: { onError: () => err("Bu video tashqarida ko‘rsatishga ruxsat bermaydi.") } });
-            iv = setInterval(() => { try { if (yt.getPlayerState && yt.getPlayerState() === 1) tick(1); } catch (e) {} }, 1000);
+              events: { onReady: (e) => { try { e.target.unMute(); e.target.setVolume(100); e.target.playVideo(); } catch (x) {} }, onError: () => err("Bu video tashqarida ko‘rsatishga ruxsat bermaydi.") } });
+            const iv = setInterval(() => { try { if (yt.getPlayerState && yt.getPlayerState() === 1) tick(1); } catch (e) {} }, 1000);
+            cleanups.push(() => clearInterval(iv));
           };
           if (window.YT && YT.Player) mk(); else { window.onYouTubeIframeAPIReady = mk; loadScript("https://www.youtube.com/iframe_api").catch(() => err("YouTube yuklanmadi")); }
           ctl = { pause: () => { try { yt.pauseVideo(); } catch (e) {} }, play: () => { try { yt.playVideo(); } catch (e) {} } };
-          o.onclose = () => { clearInterval(iv); try { yt.destroy(); } catch (e) {} };
+          cleanups.push(() => { try { yt.destroy(); } catch (e) {} });
         } else {
           box.appendChild(h("iframe", { src: r.src, allow: "autoplay; fullscreen; picture-in-picture; encrypted-media", allowfullscreen: "", referrerpolicy: "no-referrer-when-downgrade" }));
-          iv = setInterval(() => tick(1), 1000);          // sayt pleyerini to'xtatib bo'lmaydi: vaqt bo'yicha hisoblanadi
-          o.onclose = () => clearInterval(iv);
+          const iv = setInterval(() => tick(1), 1000);        // sayt pleyerini to'xtatib bo'lmaydi: vaqt bo'yicha hisoblanadi
+          cleanups.push(() => clearInterval(iv));
         }
-        /* kino ustidagi reklama: kinoning o'z reklamasi, bo'lmasa umumiy */
-        const own = m.ad && m.ad.ver ? { src: "/media/ad_m" + m.id + "?v=" + m.ad.ver, mime: m.ad.mime, url: m.ad.url } : (ads.main.ver ? { src: "/media/ad_main?v=" + ads.main.ver, mime: ads.main.mime, url: ads.main.url } : null);
-        if (own) {
-          const pad = h("div", { class: "pad" + (kind === "file" ? "" : " top"), onclick: () => openLink(own.url) }, adNode(own.src, own.mime), h("small", null, "Reklama"),
+        /* reklamalar: kinoning o'z reklamasi va umumiy reklama */
+        const list = [];
+        if (m.ad && m.ad.ver) list.push({ src: "/media/ad_m" + m.id + "?v=" + m.ad.ver, mime: m.ad.mime, url: m.ad.url });
+        if (ads.main.ver) list.push({ src: "/media/ad_main?v=" + ads.main.ver, mime: ads.main.mime, url: ads.main.url });
+        if (list.length) {                                    // tepada ingichka, ekranni to'smaydigan chiziq
+          const pad = h("div", { class: "pad", onclick: () => openLink(list[0].url) }, adNode(list[0].src, list[0].mime), h("small", { style: "position:absolute;left:4px;top:2px;font-size:9px;font-weight:800;background:rgba(0,0,0,.6);padding:1px 5px;border-radius:5px;color:#fffc" }, "Reklama"),
             h("span", { class: "x", onclick: (e) => { e.stopPropagation(); pad.remove(); } }, svg("x")));
           box.appendChild(pad);
         }
+        /* yon bosh qilib ko'rish */
+        let rot = false;
+        const exitRot = () => setRot(false);
+        function setRot(on) { if (on === rot) return; rot = on; box.classList.toggle("rot", on); if (on) pushBack(exitRot); else dropBack(exitRot); }
+        cleanups.push(() => { if (rot) dropBack(exitRot); });
+        box.appendChild(h("button", { class: "btn s rbtn", onclick: exitRot }, svg("back"), "Chiqish"));
         function forcedAd() {
           shown = true; ctl.pause();
           let left = Math.max(0, st.forced_skip_sec);
@@ -540,11 +563,15 @@ body.hidenav #nav{display:none}
           const ov = h("div", { class: "forced" }, h("div", { class: "lab" }, "Reklama"), fm, h("div", { class: "fb" }, ads.forced.url ? h("button", { class: "btn", onclick: () => openLink(ads.forced.url) }, svg("link"), ads.forced.text || "Batafsil") : null, go));
           go.onclick = () => { if (left > 0) return; ov.remove(); watched = 0; shown = false; ctl.play(); };
           const t2 = setInterval(() => { left--; if (left > 0) go.textContent = "Davom etish (" + left + ")"; else { clearInterval(t2); go.disabled = false; go.textContent = "Davom etish"; } }, 1000);
+          cleanups.push(() => clearInterval(t2));
           box.appendChild(ov);
         }
-        return h("div", null, h("div", { style: "padding:calc(8px + env(safe-area-inset-top,0px)) 10px 8px;display:flex;align-items:center;gap:10px;background:#000" },
-          h("button", { class: "ib", "aria-label": "Orqaga", onclick: () => { ctl.pause(); close(); } }, svg("back")), h("b", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.title)), box,
-          h("div", { style: "padding:14px 16px;color:var(--muted);font-size:13px" }, "Reklama har " + st.forced_every_min + " daqiqalik ko‘rishdan keyin chiqadi."));
+        return h("div", { class: "pv" },
+          h("div", { class: "bar" }, h("button", { class: "ib", "aria-label": "Orqaga", onclick: () => { ctl.pause(); close(); } }, svg("back")), h("b", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, m.title),
+            h("button", { class: "btn s", onclick: () => setRot(true) }, svg("expand"), "Burish")),
+          h("div", { class: "stage" }, box,
+            list.map((a) => h("div", { class: "adb", onclick: () => openLink(a.url) }, adNode(a.src, a.mime), h("small", null, "Reklama"))),
+            h("div", { style: "padding:0 16px;color:var(--muted);font-size:13px" }, "Majburiy reklama har " + st.forced_every_min + " daqiqalik ko‘rishdan keyin chiqadi.")));
       });
     }).catch(fail);
   }
@@ -648,7 +675,7 @@ body.hidenav #nav{display:none}
     card.appendChild(h("b", null, edit ? "Kinoni tahrirlash" : "2. Kino ma’lumotlari"));
     if (isLinkEdit && isAdmin) { card.appendChild(lbl("Video havolasi")); card.appendChild(f.src_url); }
     card.appendChild(lbl("Nomi")); card.appendChild(f.title);
-    card.appendChild(lbl("Poster (16:9)")); card.appendChild(prev); card.appendChild(h("button", { class: "btn s", style: "margin-top:8px", onclick: () => pf.click() }, svg("image"), "Rasm tanlash")); card.appendChild(pf);
+    card.appendChild(lbl("Poster (16:9) — tanlamasangiz, videoning o‘z rasmi qo‘yiladi")); card.appendChild(prev); card.appendChild(h("button", { class: "btn s", style: "margin-top:8px", onclick: () => pf.click() }, svg("image"), "Rasm tanlash")); card.appendChild(pf);
     card.appendChild(lbl("Yili")); card.appendChild(f.year);
     card.appendChild(lbl("Mazmuni")); card.appendChild(f.descr);
     card.appendChild(lbl("Hashtaglar")); card.appendChild(f.tags);
@@ -672,7 +699,6 @@ body.hidenav #nav{display:none}
     save.onclick = () => {
       if (!edit && mode === "link" && !f.src_url.value.trim()) return toast("Video havolasini yozing");
       if (!edit && mode !== "link" && !upId) return toast("Avval videoni tanlang");
-      if (!edit && mode !== "link" && !posterData) return toast("Poster rasmini tanlang");
       const v = { title: f.title.value, year: f.year.value, descr: f.descr.value, tags: f.tags.value, emotions: [...emos], age: +age.value, quality: qual.value, lang: f.lang.value };
       if (isAdmin) { v.code = f.code.value; v.aliases = f.aliases.value; v.stream_url = f.stream_url.value; v.ad_url = f.ad_url.value; if (isLinkEdit || (!edit && mode === "link")) v.src_url = f.src_url.value; }
       if (posterData) v.poster = posterData;
@@ -773,6 +799,8 @@ body.hidenav #nav{display:none}
       F.top_mode = h("select", { class: "field" }, h("option", { value: "auto" }, "Avtomatik — eng ko‘p ko‘rilganlar"), h("option", { value: "manual" }, "Qo‘lda — men tanlagan tartib")); F.top_mode.value = s.top_mode;
       body.appendChild(h("div", { class: "lbl" }, "Top ro‘yxat rejimi")); body.appendChild(F.top_mode);
       F.welcome = h("textarea", { class: "field" }, s.welcome); body.appendChild(h("div", { class: "lbl" }, "/start xabari ({name} — ism)")); body.appendChild(F.welcome);
+      body.appendChild(h("div", { class: "glass pg", style: "margin-top:18px" }, h("b", null, "Baza zaxirasi"), h("div", { class: "note" }, "Bot bazani o‘zi har 2 daqiqada sizning chatingizga yuborib turadi. Yangi fayllarni GitHub'ga tashlashdan oldin shu tugmani bosib qo‘ying."),
+        h("button", { class: "btn s", onclick: () => api("admin/backup").then(() => toast("Zaxira chatingizga yuborildi")).catch(fail) }, svg("send"), "Hozir zaxira olish")));
       body.appendChild(h("button", { class: "btn p", style: "margin-top:16px", onclick: () => { const v = {}; for (const k in F) v[k] = F[k].value; api("admin/settings/save", { values: v }).then((r) => { Object.assign(S.me.settings, { forced_every_min: r.settings.forced_every_min, forced_skip_sec: r.settings.forced_skip_sec }); toast("Saqlandi"); S.home = null; loadHome(); }).catch(fail); } }, "Saqlash"));
     });
     else if (A.tab === "stat") need("admin/stats", {}, (d) => {

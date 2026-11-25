@@ -71,7 +71,8 @@ def connect():
     return con
 
 
-MIGRATE = {"movies": [("src", "TEXT DEFAULT 'tg'"), ("src_url", "TEXT DEFAULT ''"), ("poster_url", "TEXT DEFAULT ''")]}
+MIGRATE = {"movies": [("src", "TEXT DEFAULT 'tg'"), ("src_url", "TEXT DEFAULT ''"), ("poster_url", "TEXT DEFAULT ''")],
+           "uploads": [("thumb", "TEXT DEFAULT ''")]}
 MAX_REQUIRED = 15            # majburiy obuna kanal/guruhlari eng ko'pi
 
 
@@ -282,12 +283,21 @@ def perm_list(status: str):
 
 
 # ---------------- yuklangan videolar ----------------
-def upload_add(uid: int, kind: str, file_id: str, uniq: str, size: int, duration: int, name: str) -> int:
+def upload_add(uid: int, kind: str, file_id: str, uniq: str, size: int, duration: int, name: str, thumb: str = "") -> int:
     r = _q("SELECT id FROM uploads WHERE user_id=? AND uniq=? AND used=0", (uid, uniq), one=True)
     if r:
         return r["id"]
-    return _x("INSERT INTO uploads(user_id,file_id,uniq,kind,size,duration,name,created) VALUES(?,?,?,?,?,?,?,?)",
-              (uid, file_id, uniq, kind, size or 0, duration or 0, (name or "")[:120], now()))
+    return _x("INSERT INTO uploads(user_id,file_id,uniq,kind,size,duration,name,created,thumb) VALUES(?,?,?,?,?,?,?,?,?)",
+              (uid, file_id, uniq, kind, size or 0, duration or 0, (name or "")[:120], now(), thumb or ""))
+
+
+def upload_thumb(uid: int, upload_id) -> str:
+    """Videoning o'z rasmi (thumbnail) file_id si — poster berilmasa shuni ishlatamiz."""
+    try:
+        r = _q("SELECT thumb FROM uploads WHERE id=? AND user_id=?", (int(upload_id), uid), one=True)
+    except (TypeError, ValueError):
+        return ""
+    return (r["thumb"] if r else "") or ""
 
 
 def uploads_pending(uid: int):
